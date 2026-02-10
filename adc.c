@@ -28,6 +28,7 @@ typedef enum {
 // -------------- VARIABILI GLOBALI --------------- //
 int spi_fd;
 static struct termios oldt;
+static bool reset_offset = false;
 
 // ------------------- FUNZIONI ------------------- //
 
@@ -84,7 +85,14 @@ STATO_PEDANA verificaPedana(void) {
     static uint32_t somma40val = 0;
     static uint16_t NvalidRead = 0;
     int32_t adc = 0, adcMSB = 0, PESO_in_gr = 0;
-    STATO_PEDANA retVal;
+    
+    // Se Python invia il comando di tara, resettiamo i contatori
+    if (reset_offset) {
+        NvalidRead = 0;
+        somma40val = 0;
+        reset_offset = false;
+        printf("RESET_START\n"); // Segnale per Python
+    }
 
     if(ltc2430_read(spi_fd, &adc) == 0) {
         adcMSB = adc >> 8;
@@ -94,18 +102,15 @@ STATO_PEDANA verificaPedana(void) {
             if(NvalidRead == NUM_SAMPLES_FOR_OFFSET)
                 offset = somma40val / NUM_SAMPLES_FOR_OFFSET;
             
-            printf("Calibrazione %d/40 - ADC_MSB: %d\n", NvalidRead, adcMSB);
+            // Stampiamo un formato facilmente leggibile da Python
+            printf("CALIB:%d\n", NvalidRead); 
         } else {
             PESO_in_gr = ((adcMSB - offset) * 25 * COR_PESO) / DFL_DIV_COR_PESO;
-            printf("Peso: %d gr (ADC: %d, Offset: %d)\n", PESO_in_gr, adcMSB, offset);
+            printf("PESO:%d\n", PESO_in_gr);
         }
-        retVal = PEDANA_CARICA;
-    } else {
-        printf("Dato non pronto...\n");
-        usleep(80000);
-        retVal = PEDANA_NON_LETTA;
+        return PEDANA_CARICA;
     }
-    return retVal;
+    return PEDANA_NON_LETTA;
 }
 
 int main(void) {
@@ -119,30 +124,41 @@ int main(void) {
     keyboard_init();
 
     spi_fd = open(SPI_DEV, O_RDWR);
-    if (spi_fd < 0) { 
-        perror("Errore apertura SPI (Verifica che sia abilitato)"); 
+    if (spi_fd < 0) {
+        perror("Errore apertura SPI (Verifica che sia abilitato)");
         keyboard_restore();
-        return 1; 
+        return 1;
     }
 
     uint8_t mode = SPI_MODE;
     ioctl(spi_fd, SPI_IOC_WR_MODE, &mode);
     ioctl(spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &(uint32_t){SPI_SPEED});
 
+    // 1. ATTESA AVVIO
     printf("Premi un tasto per AVVIARE la lettura\n");
-    while(!exit) { if(key_pressed() != (uint16_t)-1) exit = true; }
-    
-    exit = false;
-    printf("Avvio loop di lettura... Premi un tasto per uscire.\n");
+    while(key_pressed() == (uint16_t)-1) {
+        usleep(100000); // Evita di sovraccaricare la CPU mentre aspetta
+    }
 
+    // 2. LOOP DI LETTURA
+    printf("Avvio loop di lettura... Premi 't' per TARA o altri tasti per uscire.\n");
+    
+    exit = false; // Reset variabile per il secondo loop
     while(!exit) {
         verificaPedana();
         usleep(250000); // 4 letture al secondo
 
         k = key_pressed();
-        if (k != (uint16_t)-1) exit = true;
+        if (k != (uint16_t)-1) {
+            if (k == 't') {
+                reset_offset = true; // Attiva la ricalibrazione nella funzione verificaPedana
+            } else {
+                exit = true; // Esce dal programma con qualsiasi altro tasto
+            }
+        }
     }
 
+    // 3. CHIUSURA
     close(spi_fd);
     keyboard_restore();
     printf("\nFine programma.\n");
