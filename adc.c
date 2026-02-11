@@ -105,8 +105,11 @@ STATO_PEDANA verificaPedana(void) {
             // Stampiamo un formato facilmente leggibile da Python
             printf("CALIB:%d\n", NvalidRead); 
         } else {
-            PESO_in_gr = ((adcMSB - offset) * 25 * COR_PESO) / DFL_DIV_COR_PESO;
-            printf("PESO:%d\n", PESO_in_gr);
+            //PESO_in_gr = ((adcMSB - offset) * 25 * COR_PESO) / DFL_DIV_COR_PESO;
+            //printf("PESO:%d\n", PESO_in_gr);
+            int32_t adc_netto = adcMSB - offset;
+            printf("RAW:%d\n", adc_netto); 
+            fflush(stdout); // Forza l'invio immediato a Python
         }
         return PEDANA_CARICA;
     }
