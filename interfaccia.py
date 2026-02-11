@@ -8,11 +8,17 @@ class BilanciaApp(ctk.CTk):
         super().__init__()
 
         self.title("Sistema di Pesatura Professionale")
-        self.geometry("800x600")
+        self.geometry("1280x700")
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
+        # Variabile per il fattore di correzione (inizialmente 1.0)
+        self.calib_factor = 1.0
+        self.ultimo_peso_grezzo = 0.0 # Per memorizzare l'ultima lettura non corretta
+
         # UI Elements
+        font_bottoni = ("Roboto", 30, "bold")
+
         self.label_titolo = ctk.CTkLabel(self, text="BILANCIA DIGITALE", font=("Roboto", 34, "bold"))
         self.label_titolo.pack(pady=20)
 
@@ -29,11 +35,39 @@ class BilanciaApp(ctk.CTk):
         self.label_peso = ctk.CTkLabel(self.frame_peso, text="--- g", font=("Roboto", 80, "bold"), text_color="#3b8ed0")
         self.label_peso.pack(pady=30)
 
-        self.btn_start = ctk.CTkButton(self, text="AVVIA SISTEMA", command=self.start_measurement)
-        self.btn_start.pack(pady=30)
+        # 1. Crea il contenitore (Frame) per i bottoni
+        self.frame_bottoni = ctk.CTkFrame(self, fg_color="transparent") # Trasparente per non vederlo
+        self.frame_bottoni.pack(pady=10)
 
-        self.btn_tara = ctk.CTkButton(self, text="TARA", command=self.esegui_tara, fg_color="orange")
-        self.btn_tara.pack(pady=30)
+        # 2. Crea il bottone AVVIA e mettilo nel frame (side="left")
+        self.btn_start = ctk.CTkButton(self.frame_bottoni, text="AVVIA SISTEMA", command=self.start_measurement)
+        self.btn_start.pack(side="left", padx=30, ipadx=20, ipady=20) # padx aggiunge spazio tra i due bottoni
+        self.btn_start.configure(font=font_bottoni)
+
+        # 3. Crea il bottone TARA e mettilo nello stesso frame (side="left")
+        self.btn_tara = ctk.CTkButton(self.frame_bottoni, text="TARA", command=self.esegui_tara, fg_color="orange")
+        self.btn_tara.pack(side="left", padx=30, ipadx=20, ipady=20)
+        self.btn_tara.configure(font=font_bottoni)
+
+        self.frame_calib = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_calib.pack(pady=20)
+
+        self.entry_campione = ctk.CTkEntry(self.frame_calib, placeholder_text="Peso Kg")
+        self.entry_campione.pack(side="left", padx=5, ipadx=20, ipady=30)
+        self.entry_campione.bind("<Button-1>", lambda e: NumericKeypad(self, self.entry_campione))
+
+        self.btn_calib_span = ctk.CTkButton(self.frame_calib, text="CALIBRA", 
+                                           command=self.esegui_calibrazione_campione, 
+                                           fg_color="green", width=100)
+        self.btn_calib_span.pack(side="left", padx=5, ipadx=20, ipady=20)
+        self.btn_calib_span.configure(font=font_bottoni)
+
+# 4. Crea il bottone ESCI e mettilo nello stesso frame (side="left")
+        self.btn_exit = ctk.CTkButton(self.frame_bottoni, text="ESCI", 
+                                     command=self.chiudi_applicazione, 
+                                     fg_color="#C0392B", hover_color="#962D22") # Rosso scuro
+        self.btn_exit.pack(side="left", padx=30, ipadx=20, ipady=20)
+        self.btn_exit.configure(font=font_bottoni)
 
         self.process = None
 
@@ -80,37 +114,26 @@ class BilanciaApp(ctk.CTk):
 
     def update_peso(self, valore_str):
         try:
-            # 1. Convertiamo la stringa ricevuta dal C in numero (grammi)
             grammi = float(valore_str)
-        
-            # 2. Convertiamo in Kg
             kg_raw = grammi / 1000.0
-        
-            # 3. Applichiamo il taglio di 50g (0.05 kg)
-            # La logica: dividiamo per 0.05, arrotondiamo all'intero e rimoltiplichiamo per 0.05
-            taglio = 0.05
-            kg_fissati = round(kg_raw / taglio) * taglio
-        
-            # 4. Gestione dello zero e valori negativi
-            # Se il peso è molto piccolo (es. 20g), il taglio lo porterà a 0.00
-            if abs(kg_fissati) < 0.01: 
-                kg_fissati = 0.00
 
-            # 5. Formattazione per la GUI (sempre 2 decimali)
-            testo_display = f"{kg_fissati:.2f} Kg"
-        
-            # Aggiornamento etichetta
-            self.label_peso.configure(text=testo_display)
-        
-            # Opzionale: Colore rosso se il peso è negativo (sotto la tara)
-            if kg_fissati < -0.04: # tolleranza prima di segnare rosso
-                self.label_peso.configure(text_color="#E74C3C") # Rosso
-            else:
-                self.label_peso.configure(text_color="#3b8ed0") # Blu CustomTkinter
-            
-        except ValueError:
-            # Se il C invia qualcosa di non numerico, ignoriamo l'errore
-            pass
+        # Salviamo SEMPRE il valore grezzo (senza correzioni) 
+        # per permettere ricalibrazioni successive
+            self.ultimo_peso_grezzo = kg_raw
+
+        # 1. Applichiamo il fattore di correzione calcolato col tasto
+            kg_calibrati = kg_raw * self.calib_factor
+
+        # 2. Applichiamo il taglio di 50g (0.05)
+            taglio = 0.05
+            kg_fissati = round(kg_calibrati / taglio) * taglio
+
+        # Visualizzazione (usiamo max(0, ...) per evitare -0.00 se la pedana è vuota)
+            testo = f"{max(0, kg_fissati):.2f} Kg"
+            self.label_peso.configure(text=testo)
+
+        except Exception as e:
+            print(f"Errore update_peso: {e}")
 
     def esegui_tara(self):
         if self.process and self.process.poll() is None:
@@ -122,6 +145,90 @@ class BilanciaApp(ctk.CTk):
                 self.progress_bar.set(0)
             except Exception as e:
                 print(f"Errore tara: {e}")
+
+    def esegui_calibrazione_campione(self):
+        try:
+            # Leggi il valore inserito nella Entry
+            peso_campione_kg = float(self.entry_campione.get())
+        
+            # Evitiamo la divisione per zero se non abbiamo ancora letto nulla
+            if self.ultimo_peso_grezzo == 0:
+                self.label_stato.configure(text="Errore: nessuna lettura", text_color="red")
+                return
+
+            # Calcolo del nuovo fattore
+            # Se leggo 19.90 e voglio 20.00: 20 / 19.90 = 1.0050...
+            self.calib_factor = peso_campione_kg / self.ultimo_peso_grezzo
+        
+            self.label_stato.configure(text=f"Calibrazione OK! Fattore: {self.calib_factor:.4f}", text_color="green")
+            
+            # Opzionale: pulisci la casella di testo dopo la calibrazione
+            self.entry_campione.delete(0, 'end')
+
+        except ValueError:
+            self.label_stato.configure(text="Inserire un numero valido!", text_color="red")
+
+    def chiudi_applicazione(self):
+            # 1. Se il processo C è attivo, termina il programma
+            if self.process and self.process.poll() is None:
+                try:
+                    # Invia un comando di uscita se previsto o termina forzatamente
+                    self.process.terminate() 
+                    self.process.wait(timeout=1)
+                except:
+                    self.process.kill()
+
+            # 2. Ripristina il terminale (utile per la tastiera del Raspberry)
+            os.system("stty echo") # Forza il ripristino dell'echo del terminale
+        
+            # 3. Chiudi la finestra
+            self.quit()
+            self.destroy()
+
+class NumericKeypad(ctk.CTkToplevel):
+    def __init__(self, master, target_entry):
+        super().__init__(master)
+        self.title("Tastierino")
+        self.geometry("280x400")
+        self.target_entry = target_entry
+        self.attributes('-topmost', True) # Resta sopra la finestra principale
+        self.resizable(False, False)
+
+        # Configurazione griglia
+        for i in range(3): self.grid_columnconfigure(i, weight=1)
+
+        tasti = [
+            '7', '8', '9',
+            '4', '5', '6',
+            '1', '2', '3',
+            '0', '.', 'Canc'
+        ]
+
+        r, c = 0, 0
+        for tasto in tasti:
+            cmd = lambda t=tasto: self.click_tasto(t)
+            color = "#E74C3C" if tasto == 'Canc' else "#34495E"
+            
+            btn = ctk.CTkButton(self, text=tasto, width=70, height=70, 
+                               font=("Roboto", 20, "bold"), fg_color=color, command=cmd)
+            btn.grid(row=r, column=c, padx=5, pady=5)
+            c += 1
+            if c > 2:
+                c = 0
+                r += 1
+
+        # Tasto Chiudi
+        btn_ok = ctk.CTkButton(self, text="OK", height=50, fg_color="#2ECC71", 
+                              font=("Roboto", 24, "bold"), command=self.destroy)
+        btn_ok.grid(row=4, column=0, columnspan=3, sticky="we", padx=5, pady=10)
+
+    def click_tasto(self, valore):
+        if valore == 'Canc':
+            self.target_entry.delete(0, 'end')
+        else:
+            current = self.target_entry.get()
+            self.target_entry.delete(0, 'end')
+            self.target_entry.insert(0, current + valore)
 
 if __name__ == "__main__":
     app = BilanciaApp()
