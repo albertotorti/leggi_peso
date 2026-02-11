@@ -99,6 +99,7 @@ STATO_PEDANA verificaPedana(void) {
         if(NvalidRead < NUM_SAMPLES_FOR_OFFSET) {
             somma40val += adcMSB;
             NvalidRead++;
+            printf("CALIB_RAW:%d:%d\n", NvalidRead, adcMSB);
             if(NvalidRead == NUM_SAMPLES_FOR_OFFSET)
                 offset = somma40val / NUM_SAMPLES_FOR_OFFSET;
             

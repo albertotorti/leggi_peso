@@ -72,7 +72,7 @@ class BilanciaApp(ctk.CTk):
         thread.start()
 
     def run_c_program(self):
-        cmd = ["stdbuf", "-oL", "./leggi_peso"]
+        cmd = ["stdbuf", "-oL", "/home/tecno/leggi_peso/leggi_peso"]
         try:
             self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE,
                                           stderr=subprocess.STDOUT, text=True, bufsize=1)
